@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Checklist Digital — App (Standalone)</title>
+  <style>
+    /* Clean, mobile-first UI */
+    :root{--bg:#0b1220;--panel:#0f1724;--muted:#98a6b5;--accent:#5ad0ff;--accent2:#ff6b81;--ok:#38b000}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#071428 0%, #071827 70%);color:#e6eef6;min-height:100vh}
+    .container{max-width:1100px;margin:18px auto;padding:14px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    h1{margin:0;font-size:20px}
+    .controls{display:flex;gap:8px;align-items:center}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 12px;border-radius:10px;color:inherit;cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#071022;border:none}
+    .layout{display:grid;grid-template-columns:320px 1fr;gap:14px;margin-top:16px}
+    @media(max-width:880px){.layout{grid-template-columns:1fr}}
+    .panel{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.12));padding:14px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.6)}
+    .search{display:flex;gap:8px;margin-bottom:10px}
+    input[type=text], input[type=search], textarea, select{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px;border-radius:8px;color:inherit}
+    .list{max-height:64vh;overflow:auto}
+    .item{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.03);cursor:pointer}
+    .item .meta{font-size:12px;color:var(--muted)}
+    main.card{padding:18px;border-radius:12px;min-height:64vh}
+    fieldset{border:1px solid rgba(255,255,255,0.04);padding:12px;border-radius:10px;margin-bottom:12px}
+    legend{padding:0 8px;color:var(--accent)}
+    label{display:block;margin-bottom:8px}
+    .row{display:flex;gap:8px}
+    .col{flex:1}
+    .muted{color:var(--muted);font-size:13px}
+    .status{display:inline-block;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.03);font-size:13px}
+    .signature{display:flex;flex-direction:column;gap:8px}
+    canvas{background:#fff;border-radius:8px;touch-action:none}
+    .footer{margin-top:12px;color:var(--muted);font-size:13px;text-align:center}
+
+    /* Small responsive tweaks */
+    @media(max-width:520px){ .row{flex-direction:column} canvas{width:100%} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Checklist Digital</h1>
+        <div class="muted">Sistema de verificação — Pré e Pós-carregamento</div>
+      </div>
+      <div class="controls">
+        <div class="status">Conexão: <strong id="conn">Offline</strong></div>
+        <button id="btnExport" class="btn">Exportar</button>
+        <button id="btnImport" class="btn">Importar</button>
+        <button id="btnNew" class="btn primary">Novo</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <!-- Lista lateral -->
+      <aside class="panel">
+        <div class="search">
+          <input id="q" type="search" placeholder="Buscar placa, operador ou id">
+          <select id="statusFilter"><option value="all">Todos</option><option value="draft">Rascunho</option><option value="pre">Pré OK</option><option value="final">Finalizado</option></select>
+        </div>
+        <div id="list" class="list"></div>
+        <div class="muted" style="margin-top:8px">Toque em um item para editar. Itens salvos localmente e enfileirados para sincronização.</div>
+      </aside>
+
+      <!-- Editor -->
+      <main class="card">
+        <div id="empty" style="text-align:center">
+          <h2>Sem checklist selecionado</h2>
+          <p class="muted">Clique em "Novo" para iniciar uma inspeção ou escolha um item da lista à esquerda.</p>
+        </div>
+
+        <section id="editor" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div>
+              <strong id="title">Checklist</strong>
+              <div class="muted" id="subtitle"></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="status" id="statusPill">-</div>
+              <button id="btnSave" class="btn">Salvar</button>
+              <button id="btnDelete" class="btn">Excluir</button>
+            </div>
+          </div>
+
+          <form id="form" autocomplete="off">
+            <input id="clId" type="hidden">
+            <fieldset>
+              <legend>Dados básicos</legend>
+              <div class="row">
+                <div class="col"><label>Operador (nome) *<input id="operator" type="text" required></label></div>
+                <div class="col"><label>CPF<input id="operatorCpf" type="text"></label></div>
+              </div>
+              <div class="row">
+                <div class="col"><label>Placa do cavalo *<input id="truck_plate" type="text" required></label></div>
+                <div class="col"><label>Placa da carreta<input id="trailer_plate" type="text"></label></div>
+              </div>
+            </fieldset>
+
+            <fieldset id="preField">
+              <legend>1 — Pré-Carregamento</legend>
+              <div class="row">
+                <div class="col">
+                  <label><input type="checkbox" class="pre" data-key="tires"> Pneus em bom estado *</label>
+                  <label><input type="checkbox" class="pre" data-key="lights"> Luzes funcionando *</label>
+                  <label><input type="checkbox" class="pre" data-key="extinguisher"> Extintor presente *</label>
+                  <label><input type="checkbox" class="pre" data-key="documents"> Documentos OK *</label>
+                </div>
+                <div class="col"><label>Observações pré:<textarea id="pre_obs" rows="5"></textarea></label></div>
+              </div>
+              <div style="text-align:right"><button id="toPost" class="btn primary" type="button">Continuar para pós</button></div>
+            </fieldset>
+
+            <fieldset id="postField" style="display:none">
+              <legend>2 — Pós-Carregamento</legend>
+              <div class="row">
+                <div class="col">
+                  <label>Nº do pedido *<input id="order_number" type="text"></label>
+                  <label>Tipo de produto<input id="product_type" type="text"></label>
+                  <label>Peso total (kg)<input id="weight" type="number"></label>
+                  <label>Pallets<input id="pallets" type="number"></label>
+                </div>
+                <div class="col">
+                  <label><input type="checkbox" class="post" data-key="strapping"> Amarração OK *</label>
+                  <label><input type="checkbox" class="post" data-key="sealing"> Vedação OK *</label>
+                  <label>Nr. do lacre<input id="seal_number" type="text"></label>
+                  <label>Observações pós:<textarea id="post_obs" rows="4"></textarea></label>
+                </div>
+              </div>
+
+              <div style="margin-top:8px">
+                <strong>Assinatura</strong>
+                <div class="signature">
+                  <canvas id="sig" width="720" height="200"></canvas>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <button id="clearSig" class="btn" type="button">Limpar</button>
+                    <label class="muted">Ou digite: <input id="sigText" type="text" style="margin-left:8px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit"></label>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+                <button id="finish" class="btn primary" type="button">Finalizar checklist</button>
+              </div>
+            </fieldset>
+
+          </form>
+        </section>
+
+      </main>
+    </div>
+
+    <div class="footer">App offline-first. Use Export/Import para transferir registros ou configure o endpoint /api/sync no servidor.</div>
+  </div>
+
+  <input id="file" type="file" accept="application/json" style="display:none">
+
+  <script>
+    /* Aplicação cliente — IndexedDB, validações, assinatura e export/import
+       Objetivo: funcional, responsivo e fácil de integrar a backend posteriormente.
+    */
+
+    // ---------- IndexedDB simples ----------
+    const DB_NAME = 'checklist_db_v2';
+    let db;
+
+    // --- fixed: uid helper (previous error: uid is not defined) ---
+    function uid(){ return 'cl_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+    function openDB(){
+      return new Promise((res,reject)=>{
+        const r = indexedDB.open(DB_NAME, 1);
+        r.onupgradeneeded = ()=>{
+          const d = r.result;
+          if(!d.objectStoreNames.contains('checklists')) d.createObjectStore('checklists', {keyPath:'id'});
+          if(!d.objectStoreNames.contains('outbox')) d.createObjectStore('outbox', {autoIncrement:true});
+        };
+        r.onsuccess = ()=>{ db = r.result; res(); };
+        r.onerror = ()=> reject(r.error);
+      });
+    }
+
+    function tx(storeName, mode='readonly'){ return db.transaction(storeName, mode).objectStore(storeName); }
+
+    async function putChecklist(item){
+      // Use a single transaction for both stores to avoid race conditions
+      return new Promise(r=>{
+        const t = db.transaction(['checklists','outbox'],'readwrite');
+        t.objectStore('checklists').put(item);
+        t.objectStore('outbox').put({type:'upsert', item});
+        t.oncomplete = ()=> r();
+        t.onerror = ()=> r();
+      });
+    }
+
+    function deleteChecklist(id){
+      return new Promise(r=>{
+        const t = db.transaction(['checklists','outbox'],'readwrite');
+        t.objectStore('checklists').delete(id);
+        t.objectStore('outbox').put({type:'delete', id});
+        t.oncomplete = ()=> r();
+      });
+    }
+
+    function getAllChecklists(){
+      return new Promise(r=>{ const req = db.transaction('checklists','readonly').objectStore('checklists').getAll(); req.onsuccess=()=> r(req.result); });
+    }
+
+    function getChecklist(id){
+      return new Promise(r=>{ const req = db.transaction('checklists','readonly').objectStore('checklists').get(id); req.onsuccess=()=> r(req.result); });
+    }
+
+    // ---------- UI helpers ----------
+    const el = id => document.getElementById(id);
+
+    function formatDate(iso){ if(!iso) return '-'; const d = new Date(iso); return d.toLocaleString(); }
+
+    // ---------- App logic ----------
+    async function init(){ await openDB(); bindEvents(); await refreshList(); updateConn(); initCanvas(); }
+
+    function bindEvents(){
+      el('btnNew').addEventListener('click', onNew);
+      el('q').addEventListener('input', refreshList);
+      el('statusFilter').addEventListener('change', refreshList);
+      el('btnSave').addEventListener('click', onSave);
+      el('toPost').addEventListener('click', onToPost);
+      el('finish').addEventListener('click', onFinish);
+      el('btnDelete').addEventListener('click', onDelete);
+      el('btnExport').addEventListener('click', onExport);
+      el('btnImport').addEventListener('click', ()=> el('file').click());
+      el('file').addEventListener('change', onImportFile);
+      window.addEventListener('online', ()=>{ updateConn(); trySync(); });
+      window.addEventListener('offline', updateConn);
+    }
+
+    async function refreshList(){
+      const items = await getAllChecklists();
+      const q = el('q').value.trim().toLowerCase();
+      const statusF = el('statusFilter').value;
+      const list = el('list'); list.innerHTML='';
+      const filtered = items.filter(i=>{
+        if(statusF==='draft' && i.status!=='draft') return false;
+        if(statusF==='pre' && i.status!=='pre_completed') return false;
+        if(statusF==='final' && i.status!=='post_completed') return false;
+        if(!q) return true;
+        return (i.truck_plate||'').toLowerCase().includes(q) || (i.operator||'').toLowerCase().includes(q) || i.id.toLowerCase().includes(q);
+      }).sort((a,b)=> (b.updated_at||'') > (a.updated_at||'') ? 1 : -1);
+
+      for(const it of filtered){
+        const div = document.createElement('div'); div.className='item';
+        div.innerHTML = `<div><strong>${it.truck_plate||'--'}</strong><div class="meta">${it.operator||'—'} • ${formatDate(it.updated_at)} • ${it.id}</div></div><div class="meta">${statusLabel(it.status)}</div>`;
+        div.addEventListener('click', ()=> openItem(it.id));
+        list.appendChild(div);
+      }
+    }
+
+    function statusLabel(s){ if(s==='draft') return 'Rascunho'; if(s==='pre_completed') return 'Pré OK'; if(s==='post_completed') return 'Finalizado'; return '—'; }
+
+    async function onNew(){
+      const id = uid();
+      const cl = { id, operator:'', operatorCpf:'', truck_plate:'', trailer_plate:'', created_at:new Date().toISOString(), updated_at:new Date().toISOString(), status:'draft', data:{pre:{}, post:{}} };
+      await putChecklist(cl); await refreshList(); openItem(id);
+    }
+
+    async function openItem(id){
+      const cl = await getChecklist(id);
+      if(!cl) return alert('Não encontrado');
+      // fill UI
+      el('clId').value = cl.id; el('operator').value = cl.operator||''; el('operatorCpf').value = cl.operatorCpf||'';
+      el('truck_plate').value = cl.truck_plate||''; el('trailer_plate').value = cl.trailer_plate||'';
+      // pre
+      for(const ch of document.querySelectorAll('.pre')) ch.checked = !!(cl.data && cl.data.pre && cl.data.pre[ch.dataset.key]);
+      el('pre_obs').value = (cl.data && cl.data.pre && cl.data.pre.obs) || '';
+      // post
+      el('order_number').value = (cl.data && cl.data.post && cl.data.post.order_number) || '';
+      el('product_type').value = (cl.data && cl.data.post && cl.data.post.product_type) || '';
+      el('weight').value = (cl.data && cl.data.post && cl.data.post.weight) || '';
+      el('pallets').value = (cl.data && cl.data.post && cl.data.post.pallets) || '';
+      el('seal_number').value = (cl.data && cl.data.post && cl.data.post.seal_number) || '';
+      for(const ch of document.querySelectorAll('.post')) ch.checked = !!(cl.data && cl.data.post && cl.data.post[ch.dataset.key]);
+      el('post_obs').value = (cl.data && cl.data.post && cl.data.post.obs) || '';
+      // signature
+      if(cl.data && cl.data.post && cl.data.post.signature && typeof cl.data.post.signature === 'string' && cl.data.post.signature.startsWith('data:image')){
+        drawSignatureFromDataUrl(cl.data.post.signature);
+        el('sigText').value = '';
+      } else { el('sigText').value = (cl.data && cl.data.post && cl.data.post.signature) || ''; clearCanvas(); }
+
+      // UI
+      el('empty').style.display='none'; el('editor').style.display='block';
+      el('title').textContent = 'Checklist — ' + cl.id; el('subtitle').textContent = 'Criado: ' + formatDate(cl.created_at);
+      el('statusPill').textContent = statusLabel(cl.status); el('statusPill').style.background = cl.status==='post_completed' ? 'linear-gradient(90deg,var(--ok),#4ef08a)' : '';
+      // show/hide post stage
+      if(cl.status === 'post_completed' || cl.status === 'pre_completed') {
+        document.getElementById('preField').style.display='block'; document.getElementById('postField').style.display='block';
+      } else { document.getElementById('preField').style.display='block'; document.getElementById('postField').style.display='none'; }
+    }
+
+    async function onSave(){
+      const id = el('clId').value; if(!id) return alert('Selecione um checklist');
+      const cl = await getChecklist(id);
+      cl.operator = el('operator').value.trim(); cl.operatorCpf = el('operatorCpf').value.trim(); cl.truck_plate = el('truck_plate').value.trim(); cl.trailer_plate = el('trailer_plate').value.trim();
+      cl.updated_at = new Date().toISOString();
+      cl.data.pre = { obs: el('pre_obs').value.trim() };
+      document.querySelectorAll('.pre').forEach(ch=> cl.data.pre[ch.dataset.key] = ch.checked);
+      // if had pre completed, keep status
+      if(cl.status === 'draft') cl.status = 'draft';
+      await putChecklist(cl); await refreshList(); alert('Salvo localmente');
+    }
+
+    async function onToPost(){
+      const id = el('clId').value; if(!id) return alert('Selecione um checklist');
+      const cl = await getChecklist(id);
+      // basic required fields
+      if(!el('operator').value.trim() || !el('truck_plate').value.trim()) return alert('Preencha operador e placa do cavalo');
+      // required pre checks
+      const must = ['tires','lights','extinguisher','documents'];
+      for(const k of must) if(!document.querySelector('.pre[data-key="'+k+'"]').checked) return alert('Confirme todos os itens obrigatórios da fase pré');
+      cl.data.pre = { obs: el('pre_obs').value.trim() };
+      document.querySelectorAll('.pre').forEach(ch=> cl.data.pre[ch.dataset.key] = ch.checked);
+      cl.status = 'pre_completed'; cl.updated_at = new Date().toISOString();
+      await putChecklist(cl); await refreshList(); // open post
+      document.getElementById('postField').style.display='block'; scrollToBottom();
+    }
+
+    async function onFinish(){
+      const id = el('clId').value; if(!id) return alert('Selecione um checklist');
+      const cl = await getChecklist(id);
+      // required post fields
+      if(!el('order_number').value.trim()) return alert('Número do pedido obrigatório');
+      const mustPost = ['strapping','sealing'];
+      for(const k of mustPost) if(!document.querySelector('.post[data-key="'+k+'"]').checked) return alert('Confirme todos os itens obrigatórios da fase pós');
+      cl.data.post = {
+        order_number: el('order_number').value.trim(),
+        product_type: el('product_type').value.trim(),
+        weight: el('weight').value,
+        pallets: el('pallets').value,
+        seal_number: el('seal_number').value.trim(),
+        obs: el('post_obs').value.trim()
+      };
+      // signature: prefer text if provided
+      const txt = el('sigText').value.trim();
+      if(txt) cl.data.post.signature = txt;
+      else {
+        const data = sigCanvas.toDataURL(); if(isCanvasBlank(sigCanvas)) return alert('Assinatura necessária: desenhe ou digite o nome'); cl.data.post.signature = data;
+      }
+      cl.status = 'post_completed'; cl.updated_at = new Date().toISOString();
+      await putChecklist(cl); await refreshList(); alert('Checklist finalizado e salvo localmente');
+    }
+
+    async function onDelete(){ if(!confirm('Excluir este checklist?')) return; const id = el('clId').value; await deleteChecklist(id); el('editor').style.display='none'; el('empty').style.display='block'; await refreshList(); }
+
+    function onExport(){ getAllChecklists().then(list=>{ const blob = new Blob([JSON.stringify(list, null, 2)], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download = 'checklists-export-'+(new Date().toISOString().slice(0,19))+'.json'; a.click(); URL.revokeObjectURL(url); }); }
+
+    function onImportFile(e){ const f = el('file').files[0]; if(!f) return; const reader = new FileReader(); reader.onload = async ()=>{ try{ const data = JSON.parse(reader.result); if(!Array.isArray(data)) return alert('JSON inválido'); for(const it of data){ it.updated_at = it.updated_at || new Date().toISOString(); it.created_at = it.created_at || new Date().toISOString(); await putChecklist(it); } alert('Importado com sucesso'); await refreshList(); }catch(err){ alert('Erro ao importar: '+err.message); } }; reader.readAsText(f); }
+
+    // ---------- Signature canvas ----------
+    let sigCanvas, sigCtx;
+    function initCanvas(){ sigCanvas = document.getElementById('sig'); sigCtx = sigCanvas.getContext('2d'); sigCtx.strokeStyle = '#000'; sigCtx.lineWidth = 2; sigCtx.lineCap = 'round';
+      let drawing = false;
+      function pos(e){ const rect = sigCanvas.getBoundingClientRect(); if(e.touches){ return {x: e.touches[0].clientX-rect.left, y: e.touches[0].clientY-rect.top}; } return {x: e.clientX-rect.left, y: e.clientY-rect.top}; }
+      sigCanvas.addEventListener('pointerdown', (e)=>{ drawing=true; const p=pos(e); sigCtx.beginPath(); sigCtx.moveTo(p.x,p.y); e.preventDefault(); });
+      window.addEventListener('pointermove', (e)=>{ if(!drawing) return; const p=pos(e); sigCtx.lineTo(p.x,p.y); sigCtx.stroke(); });
+      window.addEventListener('pointerup', ()=>{ drawing=false; });
+      el('clearSig').addEventListener('click', clearCanvas);
+    }
+
+    function clearCanvas(){ if(!sigCtx) return; sigCtx.clearRect(0,0,sigCanvas.width,sigCanvas.height); }
+    function isCanvasBlank(c){ const blank = document.createElement('canvas'); blank.width=c.width; blank.height=c.height; return c.toDataURL() === blank.toDataURL(); }
+    function drawSignatureFromDataUrl(url){ clearCanvas(); const img = new Image(); img.onload = ()=>{ sigCtx.drawImage(img, 0, 0, sigCanvas.width, sigCanvas.height); }; img.src = url; }
+
+    // ---------- Sync (simple) ----------
+    async function trySync(){ if(!navigator.onLine) return; // here we would read outbox and POST to /api/sync
+      // For now we simply clear outbox to simulate success (remove if you want real sync)
+      const t = db.transaction('outbox','readwrite'); t.objectStore('outbox').clear(); t.oncomplete = ()=> console.log('Outbox cleared (simulated sync)'); }
+
+    async function updateConn(){ el('conn').textContent = navigator.onLine ? 'Online' : 'Offline'; }
+
+    function scrollToBottom(){ window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
+
+    // ---------- boot ----------
+    document.addEventListener('DOMContentLoaded', ()=> init());
+
+  </script>
+</body>
+</html>
